@@ -62,9 +62,6 @@ cen <- read_dta(file.path(save.R,'../MESA_data/MESAa23_CensTrctSES_20161116.dta'
 cen <- cen %>% filter(EXAM==1)
 
 pdm.full <- read.table(file.path(save.R,'../MESA_data/MESA_Epi_METH_idmap.txt'), header=T)
-
-airpoll <- read.csv(file.path(save.R,'../MESA_data/hr0322.csv'), header=T)
-table(pdm$idno %in% airpoll$ppt_id)
 ```
 
 
@@ -248,19 +245,12 @@ lapply(pd.resid, FUN=function(x){
 
 # Exclusion/Inclusion
 ```{r}
-pdm.full$sample <- "Full"
-pdm$sample <- "Analytic"
-
-pd.inex <- rbind(
-  pdm.full[,c('sample','race','G_1mi1','pov1','age5c','MO','gender','educ','mat.educ','smk5','ever.drink','bmi1c','chronic')],
-  pdm[,c('sample','race','G_1mi1','pov1','age5c','MO','gender','educ','mat.educ','smk5','ever.drink','bmi1c','chronic')])
-
-pd.inex$sample <- factor(pd.inex$sample, levels=c("Full","Analytic"))
+pdm.full$sample <- ifelse(pdm.full$idno %in% pdm$idno, "Included", "Excluded")
 
 incexl <- compareGroups(sample ~ G_1mi1 + race + gender + age5c + pov1 + 
                            educ + mat.educ + 
                           smk5 + ever.drink + bmi1c + chronic + MO,
-                        data=pd.inex)
+                        data=pdm.full)
 tab.incexl <- createTable(incexl)
 tab.incexl
 
