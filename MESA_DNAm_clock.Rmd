@@ -1,0 +1,117 @@
+---
+title: "MESA_clocks"
+author: "John Dou"
+date: "June 18, 2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: show
+    number_sections: true
+---
+
+
+```{r lib, message=F, warning=F}
+library(ggplot2)
+library(haven)
+library(kableExtra)
+```
+
+
+# Generate DNAm Clock Estimates
+
+```{r age generation, eval=F}
+
+save.R <- "/nfs/turbo/bakulski1/People/johndou/MESA/"
+
+### load data
+DNAm <- readRDS(file.path(save.R, "MESA_DNAm.rds"))
+pd <- read.table("/nfs/turbo/bakulski1/Datasets/MESA/MESA_Epi_METH_idmap.txt", header=T)
+cell.est <- readRDS(file=file.path(save.R,'cell.est.RDS'))
+
+
+### Horvath skin and blood clock (2018)
+library(wateRmelon)
+
+horvath <- read.csv("/nfs/turbo/bakulski1/People/johndou/MESA/DNAm_age/aging-10-101508-s005.csv")
+horvath.coef <- horvath$Coef
+names(horvath.coef) <- horvath$ID
+table(names(horvath.coef)[-1] %in% rownames(DNAm))
+# TRUE
+#  391
+
+horvath.age <- agep(DNAm, coef=horvath.coef, method='horvath')
+
+
+### Levine clock (2018)
+
+levine <- read.csv("/nfs/turbo/bakulski1/People/johndou/MESA/DNAm_age/aging-10-101414-s002.csv", header=T)
+levine.coef <- levine$Weight
+names(levine.coef) <- levine$CpG
+
+table(names(levine.coef)[-1] %in% rownames(DNAm))
+# TRUE
+#  513
+
+betas.lev <- DNAm[names(levine.coef),]
+betas.lev[1:5,1:5]
+
+rownames(betas.lev)[1] <- 'Intercept'
+betas.lev[1,] <- 1
+betas.lev[1:5,1:5]
+
+levine.age <- colSums(betas.lev * levine.coef)
+head(levine.age)
+
+
+
+cor(levine.age, horvath.age)
+
+cor(levine.age[rownames(pdm)], pdm$age5c)
+cor(horvath.age[rownames(pdm),], pdm$age5c)
+
+save(levine.age, horvath.age, file=file.path(save.R,'/Data/methyl_age.RData'))
+```
+
+
+# construct matrix for DNA grimage calculator
+
+```{r}
+save.R <- "/nfs/turbo/bakulski1/People/johndou/MESA/"
+
+DNAm <- readRDS(file.path(save.R, "MESA_DNAm.rds"))
+anno <- read.csv(file.path(save.R, "/Data/datMiniAnnotation3.csv"), header=T)
+pdm <- readRDS(file.path(save.R,'/Data/pdm_mo90.rds'))
+
+dim(pdm)
+DNAm2 <- DNAm[,rownames(pdm)]
+
+table(anno$Name %in% rownames(DNAm2))
+present <- anno$Name[anno$Name %in% rownames(DNAm2)]
+not.present <- anno$Name[!anno$Name %in% rownames(DNAm2)]
+DNAm2 <- DNAm2[present,]
+
+not.present.attach <- matrix(NA, nrow=length(not.present), ncol=ncol(DNAm2))
+rownames(not.present.attach) <- not.present
+colnames(not.present.attach) <- colnames(DNAm2)
+
+DNAm2 <- rbind(DNAm2, not.present.attach)
+DNAm2 <- cbind(rownames(DNAm2), DNAm2)
+colnames(DNAm2)[1] <- "ProbeID"
+
+write.csv(DNAm2, file=file.path(save.R,"DNAm_cl.csv"), eol = "\r\n", row.names=F)
+
+pd <- data.frame(id=rownames(pdm),
+                 Age=pdm$age5c,
+                 Tissue='blood MO',
+                 Female=ifelse(pdm$gender=='MALE',0,1))
+write.csv(pd, file=file.path(save.R,"pd_cl.csv"), eol = "\r\n", row.names=F)
+
+
+
+write.csv(DNAm2[,1:50], file=file.path(save.R,"DNAm_cl_sm.csv"), eol = "\r\n", row.names=F)
+write.csv(pd[1:50,], file=file.path(save.R,"pd_cl_sm.csv"), eol = "\r\n", row.names=F)
+
+```
+

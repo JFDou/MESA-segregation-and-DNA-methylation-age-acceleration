@@ -1,0 +1,307 @@
+---
+title: "MESA"
+output: html_document
+---
+
+
+# read data, convert to beta values
+
+```{r}
+library(openxlsx)
+save.R <- "/nfs/turbo/bakulski1/People/johndou/MESA/"
+
+pd <- read.table("/nfs/turbo/bakulski1/Datasets/MESA/MESA_Epi_METH_idmap.txt", header=T)
+nrow(pd)
+# 1264
+
+DNAm <- read.table("/nfs/turbo/bakulski1/Datasets/MESA/MESA_Epi_METH_data.txt", header=T, row.names=1,
+                   colClasses = c('character', rep('numeric',1264)))
+probemap <- read.table("/nfs/turbo/bakulski1/Datasets/MESA/MESA_Epi_METH_probeMap_Release.txt", header=T, sep='\t')
+
+
+write.xlsx(pd, file=file.path(save.R, "MESA_DNAm_pd.xlsx"), quote=F, row.names=F)
+DNAm <- 2^DNAm / (2^DNAm+1)
+saveRDS(DNAm, file=file.path(save.R, "MESA_DNAm.rds"))
+```
+
+
+
+# sex check based on X and Y methylation levels
+
+```{r sex}
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+data(Locations)
+
+save.R <- "/nfs/turbo/bakulski1/People/johndou/MESA/"
+DNAm <- readRDS(file.path(save.R, "MESA_DNAm.rds"))
+
+X <- DNAm[rownames(Locations[Locations$chr=='chrX',]),]
+Y <- DNAm[rownames(Locations[Locations$chr=='chrY',]),]
+
+X <- X[!is.na(X[,1]),]
+Y <- Y[!is.na(Y[,1]),]
+
+X <- 2^X / (2^X+1)
+Y <- 2^Y / (2^Y+1)
+
+X.med <- apply(X, 2, median)
+Y.med <- apply(Y, 2, median)
+
+pd <- read.table("/nfs/turbo/bakulski1/Datasets/MESA/MESA_Epi_METH_idmap.txt", header=T)
+pd$id2 <- paste0('X',pd$idno)
+pd$X <- X.med[pd$id2]
+pd$Y <- Y.med[pd$id2]
+pd$sex <- pd$gender
+
+pdf(file.path(save.R,'sex.pdf'))
+  ggplot(pd, aes(x=X, y=Y, col=sex))+
+    geom_point() +
+    theme_bw()
+dev.off()
+
+
+pd$sex_flag <- 0.35 < pd$X  & pd$X < 0.45
+saveRDS(pd, file=file.path(save.R, "MESA_pd.rds"))
+```
+
+
+# estimate cell proportions
+
+```{r cell}
+library(ewastools)
+
+save.R <- "/nfs/turbo/bakulski1/People/johndou/MESA/"
+DNAm <- readRDS(file.path(save.R, "MESA_DNAm.rds"))
+pd <- read.table("/nfs/turbo/bakulski1/Datasets/MESA/MESA_Epi_METH_idmap.txt", header=T)
+
+
+
+cell.est <- estimateLC(DNAm, ref="deGoede+Reinius")
+cell.est <- data.frame(cell.est)
+rownames(cell.est) <- colnames(DNAm)
+pdf(file.path(save.R,'cell_ests_ewastools.pdf'))
+  hist(cell.est$MO)
+  hist(cell.est$B)
+  hist(cell.est$CD4)
+  hist(cell.est$CD8)
+  hist(cell.est$GR)
+  hist(cell.est$NK)
+dev.off()
+
+
+saveRDS(cell.est, file=file.path(save.R,'cell.est.RDS'))
+
+identical(rownames(cell.est), paste0('X',pd$idno))
+pdf("/nfs/turbo/bakulski1/People/johndou/MESA/cell_types.pdf")
+  hist(pd$bcell, xlab='B cells', main='')
+  hist(pd$tcell, xlab='T cells', main='')
+  hist(pd$nkcell, xlab='NK cells', main='')
+  hist(pd$neutro, xlab='Neutrophils', main='')
+  plot(cell.est$B, pd$bcell)
+  plot(cell.est$CD4, pd$tcell)
+  plot(cell.est$CD8, pd$tcell)
+  plot(cell.est$NK, pd$nkcell)
+  plot(cell.est$GR, pd$neutro)
+dev.off()
+
+```
+
+
+# density plots of DNA methlyation
+
+```{r dens}
+library(minfi)
+pd <- read.table("/nfs/turbo/bakulski1/Datasets/MESA/MESA_Epi_METH_idmap.txt", header=T)
+pd <- within(pd, neu.q <- cut(neutro, quantile(neutro, probs=0:4/4), include.lowest=TRUE))
+                   
+save.R <- "/nfs/turbo/bakulski1/People/johndou/MESA/"
+DNAm <- readRDS(file.path(save.R, "MESA_DNAm.rds"))
+
+png(file.path(save.R,'density_plot.png'), height=7, width=7, units='in', res=300)
+densityPlot(DNAm)
+dev.off()
+
+png(file.path(save.R,'density_plot_sex.png'), height=7, width=7, units='in', res=300)
+densityPlot(DNAm, sampGroups=pd$gender)
+dev.off()
+
+png(file.path(save.R,'density_plot_neu.png'), height=7, width=7, units='in', res=300)
+densityPlot(DNAm, sampGroups=pd$neu.q)
+dev.off()
+
+png(file.path(save.R,'density_plot_race.png'), height=7, width=7, units='in', res=300)
+densityPlot(DNAm, sampGroups=pd$race)
+dev.off()
+
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+data(Locations)
+
+aut <- Locations[!Locations$chr %in% c('chrX','chrY'),]
+DNAm.aut <- DNAm[rownames(DNAm) %in% rownames(aut),]
+
+mean.DNAm <- colMeans(DNAm.aut)
+pdf(file.path(save.R,'hist_mean_DNAm.pdf'))
+hist(mean.DNAm, main='', xlab='Mean DNAm')
+dev.off()
+
+```
+
+
+# merge/compile data
+```{r}
+library(haven)
+library(dplyr)
+
+save.R <- "/nfs/turbo/bakulski1/People/johndou/MESA/"
+
+DNAm <- readRDS(file.path(save.R, "MESA_DNAm.rds"))
+pd <- read.table("/nfs/turbo/bakulski1/Datasets/MESA/MESA_Epi_METH_idmap.txt", header=T)
+
+segregation <- read_dta(file.path(save.R,'/Data/MESAa23_RacialSeg_20161116.dta'))
+census <- read_dta(file.path(save.R,'/Data/MESAa23_CensTrctSES_20161116.dta'))
+mesa <- read_dta(file.path(save.R,'/Data/MESA1to5long.dta'))
+
+cell.est <- readRDS(file=file.path(save.R,'cell.est.RDS'))
+
+table(pd$idno %in% segregation$idno)
+# FALSE  TRUE
+#    11  1253
+table(pd$idno %in% census$idno)
+# FALSE  TRUE
+#    11  1253
+table(pd$idno %in% mesa$idno)
+# TRUE
+# 1264
+
+subs <- intersect(pdm$idno, segregation$idno)
+
+seg1 <- segregation %>% filter(EXAM==1 & idno %in% subs) %>% arrange(idno)
+cen1 <- census %>% filter(EXAM==1 & idno %in% subs) %>% arrange(idno)
+cov1 <- mesa %>% filter(exam==1 & idno %in% subs) %>% arrange(idno)
+
+seg5 <- segregation %>% filter(EXAM==5 & idno %in% subs) %>% arrange(idno)
+cen5 <- census %>% filter(EXAM==5 & idno %in% subs) %>% arrange(idno)
+cov5 <- mesa %>% filter(exam==5 & idno %in% subs) %>% arrange(idno)
+
+pdm <- pd %>% filter(idno %in% subs) %>% arrange(idno)
+cell <- cell.est[paste0('X',pdm$idno),]
+
+pdm$age5c <- cov5$agec
+pdm <- cbind(pdm[,c('idno','age1c','age5c','race','gender','site')], cell[,1:6])
+pdm$smk1 <- ifelse(is.na(cov1$cigc), NA, 
+           ifelse(cov1$cigc==0, 'Never', 
+           ifelse(cov1$cigc==1, 'Former', 'Current')))
+pdm$smk5 <- ifelse(is.na(cov5$cigc), NA, 
+           ifelse(cov5$cigc==0, 'Never', 
+           ifelse(cov5$cigc==1, 'Former', 'Current')))
+
+pdm$G_rk1 <- seg1$G_rk #based on rook neighbors
+pdm$G_1mi1 <- seg1$G_1mi #based on 1 mile radius
+pdm$G_rk5 <- seg5$G_rk #based on rook neighbors
+pdm$G_1mi5 <- seg5$G_1mi #based on 1 mile radius
+
+pdm$inc_medHH1 <- cen1$inc_medHH
+pdm$pov1 <- cen1$pov 
+pdm$inc_medHH5 <- cen5$inc_medHH
+pdm$pov5 <- cen5$pov 
+
+pdm <- pdm[,c(1:2,12,3:11,13:ncol(pdm))]
+pdm$race <- factor(pdm$race, levels=c('WHITE, CAUCASIAN','BLACK, AFRICAN-AMERICAN','HISPANIC'))
+pdm$smk1 <- factor(pdm$smk1, levels=c('Never','Former','Current'))
+pdm$smk5 <- factor(pdm$smk1, levels=c('Never','Former','Current'))
+```
+
+# univariate stats
+```{r}
+library(tableone)
+
+tab1 <- CreateTableOne(data=pdm[,-1],factorVars=c("race","gender","site","smk1","smk5"))
+tab1 <- print(tab1, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+write.csv(tab1, file = file.path(save.R,"univar.csv"))
+
+
+#segregation and poverty vars scatter plot
+pdf(file.path(save.R,'pov_v_seg.pdf'))
+plot(pdm$G_1mi1, pdm$pov1)
+abline(lm(pdm$pov1~pdm$G_1mi1))
+
+plot(pdm$G_1mi5, pdm$pov5)
+abline(lm(pdm$pov5~pdm$G_1mi5))
+dev.off()
+
+
+# function restrict to specific genomic region in relation to cpg islands
+genomic.region <- function(X, region, anno='450k'){
+  #X = anything with cpgs as rownames
+  #region = what area you want
+  #anno = 450k or epic
+  
+  if(anno=='450k' | anno=='450K'){
+    library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+  }else if(anno=='epic' | anno=='EPIC'){
+    library(IlluminaHumanMethylationEPICanno.ilm10b2.hg19)
+  }else{
+    stop('450k or EPIC only.')
+  }
+  
+  #pick out CpGs in X that are in region
+  data(Islands.UCSC)
+  common <- intersect(rownames(X), rownames(Islands.UCSC))
+  
+  if(region=='Shore' | region=='Shelf'){
+    #if only 'Shore' or 'Shelf' are given, north and south are combined
+    Islands.UCSC <- Islands.UCSC[common,]
+    Islands.UCSC <- Islands.UCSC[Islands.UCSC$Relation_to_Island==paste('N_',region,sep='') | Islands.UCSC$Relation_to_Island==paste('S_',region,sep=''),]
+  }else{
+    Islands.UCSC <- Islands.UCSC[common,]
+    Islands.UCSC <- Islands.UCSC[Islands.UCSC$Relation_to_Island==region,]
+  }
+  
+  #return X limited to genomic region specified
+  return(X[rownames(Islands.UCSC),])
+}
+
+#drop sex
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+data(Locations)
+sex <- Locations[Locations$chr %in% c('chrY','chrX'),]
+DNAm <- DNAm[!rownames(DNAm) %in% rownames(sex),]
+  
+#compute each person's means
+pdm$meanDNAm <- colMeans(DNAm[,rownames(pdm)])*100
+pdm$meanDNAm.sea <- colMeans(genomic.region(DNAm[,rownames(pdm)],'OpenSea'))*100
+pdm$meanDNAm.shore <- colMeans(genomic.region(DNAm[,rownames(pdm)],'Shore'))*100
+pdm$meanDNAm.shelf <- colMeans(genomic.region(DNAm[,rownames(pdm)],'Shelf'))*100
+pdm$meanDNAm.island <- colMeans(genomic.region(DNAm[,rownames(pdm)],'Island'))*100
+
+saveRDS(pdm, file=file.path(save.R,'/Data/pdm.rds'))
+
+table(pdm$MO<0.9)
+# FALSE  TRUE
+#  1153   100
+pdm <- pdm[pdm$MO>0.9,]
+
+saveRDS(pdm, file=file.path(save.R,'/Data/pdm_mo90.rds'))
+```
+
+
+# Bivariate
+```{r biv}
+library(tableone)
+pdm <- readRDS(file.path(save.R,'/Data/pdm.rds'))
+
+pdm$mG_1mi1 <- pdm$G_1mi1 > median(pdm$G_1mi1,na.rm=T)
+pdm$mpov <- pdm$pov1 > median(pdm$pov1,na.rm=T)
+
+
+tab2 <- CreateTableOne(data=pdm[,-1],factorVars=c("race","gender","site","smk1","smk5"), strata='mG_1mi1')
+tab2 <- print(tab2, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+write.csv(tab2, file = file.path(save.R,"bivar_segregation.csv"))
+
+tab3 <- CreateTableOne(data=pdm[,-1],factorVars=c("race","gender","site","smk1","smk5"), strata='mpov')
+tab3 <- print(tab3, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+write.csv(tab3, file = file.path(save.R,"bivar_pov.csv"))
+
+```
+
+
