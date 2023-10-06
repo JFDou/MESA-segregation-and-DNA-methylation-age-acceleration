@@ -31,6 +31,7 @@ Reynolds LM, Lohman K, Pittman GS, et al. Tobacco exposure-related alterations i
 
 Liu Y, Ding J, Reynolds LM, et al. Methylomics of gene expression in human monocytes. Hum Mol Genet. 2013;22(24):5065-5074. doi:10.1093/hmg/ddt356
 
+# Model Prep
 ```{r lib, message=F, warning=F}
 library(ggplot2)
 library(gridExtra)
@@ -44,8 +45,16 @@ library(lmtest)
 library(reshape2)
 library(openxlsx)
 library(compareGroups)
+library(here)
+library(gtsummary)
+library(sjmisc)
+library(gt)
+library(sjlabelled)
+```
 
-save.R <- "/nfs/turbo/bakulski1/People/johndou/MESA/"
+## Load
+```{r}
+save.R <- paste0(here(),"/../../../") #cursed technique due to where script file is saved
 pdm <- readRDS(file.path(save.R,'/Data/pdm_mo90.rds'))
 pdm.f <- readRDS(file.path(save.R,'/Data/pdm.rds'))
 load(file.path(save.R,'/Data/methyl_age.RData'))
@@ -54,18 +63,21 @@ grim <- read.csv(file.path(save.R,"DNAm_cl.output.csv"),header=T)
 grim <- grim[match(rownames(pdm),grim$SampleID),]
 
 tract <- read_dta(file.path(save.R,'../MESA_data/MESAa23_RacialSeg_20161116.dta'))
-tract <- tract %>% filter(EXAM==1)
+tract1 <- tract %>% filter(EXAM==1)
+tract5 <- tract %>% filter(EXAM==5)
+rm(tract)
 
 cov <- read_dta(file.path(save.R,'../MESA_data/MESA1to5.dta'))
 
 cen <- read_dta(file.path(save.R,'../MESA_data/MESAa23_CensTrctSES_20161116.dta'))
-cen <- cen %>% filter(EXAM==1)
+cen1 <- cen %>% filter(EXAM==1)
+cen5 <- cen %>% filter(EXAM==5)
+rm(cen)
 
 pdm.full <- read.table(file.path(save.R,'../MESA_data/MESA_Epi_METH_idmap.txt'), header=T)
 ```
 
-
-# Model Prep
+## Gather Variables
 ```{r model prep}
 ### clock data
 pdm$horvath.age <-horvath.age[rownames(pdm),]
@@ -97,12 +109,13 @@ pdm$G_1mi1_q <- as.numeric(pdm$G_1mi1_cat)
 pdm$G_1mi1_q <- factor(pdm$G_1mi1_cat)
 
 ### poverty and seg for full pre-exclusion dataset
-pdm.full$G_1mi1 <- tract[match(pdm.full$idno, tract$idno),]$G_1mi
-pdm.full$pov1 <- cen[match(pdm.full$idno, cen$idno),]$pov
+pdm.full$G_1mi1 <- tract1[match(pdm.full$idno, tract1$idno),]$G_1mi
+pdm.full$pov1 <- cen1[match(pdm.full$idno, cen1$idno),]$pov
 pdm.full$MO <- pdm.f[match(pdm.full$idno, pdm.f$idno),]$MO
 
 ### tract
-pdm$tract <- tract[match(pdm$idno, tract$idno),]$cenid
+pdm$tract <- tract1[match(pdm$idno, tract1$idno),]$cenid
+pdm$tract5 <- tract5[match(pdm$idno, tract5$idno),]$cenid
 
 ### education
 cov.pd <- cov[match(pdm$idno,cov$idno),]
@@ -139,11 +152,34 @@ pdm.full$ever.drink <- ifelse(is.na(pdm.full$ever.drink), NA,
                          ifelse(pdm.full$ever.drink==1, "Yes", "No"))
 
 
+pdm$current.drink1 <- cov.pd$curalc1 %>% as.numeric()
+pdm$current.drink1 <- ifelse(is.na(pdm$current.drink1), NA,
+                         ifelse(pdm$current.drink1==1, "Yes", "No"))
+pdm$current.drink1 <- ifelse(!is.na(pdm$ever.drink=="No") & pdm$ever.drink=="No" & is.na(pdm$current.drink1),
+                             "No", pdm$current.drink1)
+
+pdm.full$current.drink1 <- cov.pdfull$curalc1 %>% as.numeric()
+pdm.full$current.drink1 <- ifelse(is.na(pdm.full$current.drink1), NA,
+                         ifelse(pdm.full$current.drink1==1, "Yes", "No"))
+pdm.full$current.drink1 <- ifelse(!is.na(pdm.full$ever.drink=="No") & pdm.full$ever.drink=="No" & is.na(pdm.full$current.drink1),
+                             "No", pdm.full$current.drink1)
+
+pdm$current.drink5 <- cov.pd$curalc5 %>% as.numeric()
+pdm$current.drink5 <- ifelse(is.na(pdm$current.drink5), NA,
+                         ifelse(pdm$current.drink5==1, "Yes", "No"))
+
+pdm.full$current.drink5 <- cov.pdfull$curalc5 %>% as.numeric()
+pdm.full$current.drink5 <- ifelse(is.na(pdm.full$current.drink5), NA,
+                         ifelse(pdm.full$current.drink5==1, "Yes", "No"))
+
 ### bmi
 pdm$bmi1c <- cov[match(pdm$idno,cov$idno),'bmi1c']$bmi1c
 
 pdm.full$bmi1c <- cov[match(pdm.full$idno,cov$idno),'bmi1c']$bmi1c
 
+pdm$bmi5c <- cov[match(pdm$idno,cov$idno),'bmi5c']$bmi5c
+
+pdm.full$bmi5c <- cov[match(pdm.full$idno,cov$idno),'bmi5c']$bmi5c
 
 ### smoking
 pdm$smk5 <- ifelse(is.na(cov.pd$cig5c), NA, 
@@ -159,6 +195,20 @@ pdm.full$smk5 <- ifelse(is.na(cov.pdfull$cig5c), NA,
 
 
 pdm.full$age5c <- cov.pdfull$age5c
+
+pdm$smk1 <- ifelse(is.na(cov.pd$cig1c), NA, 
+           ifelse(cov.pd$cig1c==0, 'Never', 
+           ifelse(cov.pd$cig1c==1, 'Former', 'Current')))
+
+pdm$smk1m <- ifelse(is.na(pdm$smk1), NA,
+             ifelse(pdm$smk1 %in% c('Former','Current'), "Ever Smoked", "Never Smoked"))
+
+pdm.full$smk1 <- ifelse(is.na(cov.pdfull$cig1c), NA, 
+           ifelse(cov.pdfull$cig1c==0, 'Never', 
+           ifelse(cov.pdfull$cig1c==1, 'Former', 'Current')))
+
+
+pdm.full$age1c <- cov.pdfull$age1c
 
 ### chronic burden
 pdm$cancer <- ifelse(cov.pd$cancer1==9, NA, cov.pd$cancer1)
@@ -181,10 +231,25 @@ pdm.full$hep <- ifelse(cov.pdfull$hepat1==9, NA, cov.pdfull$hepat1)
 pdm.full$chronic <- pdm.full$cancer + pdm.full$arthritis + pdm.full$highbp + pdm.full$diabet + pdm.full$hep + pdm.full$kidney
 
 
+pdm$diabet5 <- ifelse(cov.pd$dm035c == 9, NA, 
+               ifelse(cov.pd$dm035c %in% c(0,1), 0, 1))
+pdm$highbp5 <- ifelse(cov.pd$htn5c==9, NA, cov.pd$htn5c)
+
+pdm$chronic5 <- pdm$diabet5 + pdm$highbp5
+
+
+pdm.full$diabet5 <- ifelse(cov.pdfull$dm035c == 9, NA, 
+               ifelse(cov.pdfull$dm035c %in% c(0,1), 0, 1))
+pdm.full$highbp5 <- ifelse(cov.pdfull$htn5c==9, NA, cov.pdfull$htn5c)
+
+pdm.full$chronic5 <- pdm.full$diabet5 + pdm.full$highbp5
+
+
 ### filter missing
 dim(pdm)
 pdm <- pdm %>% filter(!is.na(pov1) & !is.na(MO) & !is.na(gender) & !is.na(educ) & !is.na(bmi1c) & 
-                      !is.na(mat.educ) & !is.na(smk5) & !is.na(ever.drink) & !is.na(G_1mi1) & !is.na(chronic))
+                      !is.na(mat.educ) & !is.na(smk1) & !is.na(current.drink1) & !is.na(G_1mi1) & !is.na(chronic)
+                      )
 dim(pdm)
 
 
@@ -234,31 +299,96 @@ pd.resid <- lapply(raceths, FUN=function(x){
 pdm <- do.call("rbind", pd.resid)
 ```
 
-
-# segregation and poverty correlation
+## segregation and poverty correlation
 ```{r}
 lapply(pd.resid, FUN=function(x){
   cor(x$G_1mi1, x$pov1)
 })
 ```
 
+## Moving?
+```{r}
+pdm %>% group_by(race) %>%
+  summarize("No Move" = sum(tract == tract5, na.rm=T), 
+            "Moved" = sum(tract != tract5, na.rm=T), 
+            "Missing Exam 5 Neighborhood Info" = sum(is.na(tract5))) %>%
+  gt()
+
+
+ggplot(pdm %>% filter(race=="WHITE, CAUCASIAN"), aes(x = G_1mi1, y = G_1mi5)) +
+      geom_point() + theme_classic() + ggtitle("WHITE, CAUCASIAN") + 
+      xlab("G* Exam 1") + ylab("G* Exam 5")
+ggplot(pdm %>% filter(race=="BLACK, AFRICAN-AMERICAN"), aes(x = G_1mi1, y = G_1mi5)) +
+      geom_point() + theme_classic() + ggtitle("BLACK, AFRICAN-AMERICAN") + 
+      xlab("G* Exam 1") + ylab("G* Exam 5")
+ggplot(pdm %>% filter(race=="HISPANIC"), aes(x = G_1mi1, y = G_1mi5)) +
+      geom_point() + theme_classic() + ggtitle("HISPANIC") + 
+      xlab("G* Exam 1") + ylab("G* Exam 5")
+
+
+ggplot(pdm %>% filter(race=="WHITE, CAUCASIAN" & (is.na(tract5) | tract != tract5)), aes(x = G_1mi1, y = G_1mi5)) +
+      geom_point() + theme_classic() + ggtitle("WHITE, CAUCASIAN") + 
+      xlab("G* Exam 1") + ylab("G* Exam 5")
+ggplot(pdm %>% filter(race=="BLACK, AFRICAN-AMERICAN" & (is.na(tract5) | tract != tract5)), aes(x = G_1mi1, y = G_1mi5)) +
+      geom_point() + theme_classic() + ggtitle("BLACK, AFRICAN-AMERICAN") + 
+      xlab("G* Exam 1") + ylab("G* Exam 5")
+ggplot(pdm %>% filter(race=="HISPANIC" & (is.na(tract5) | tract != tract5)), aes(x = G_1mi1, y = G_1mi5)) +
+      geom_point() + theme_classic() + ggtitle("HISPANIC") + 
+      xlab("G* Exam 1") + ylab("G* Exam 5")
+
+ggplot(pdm %>% filter(race=="WHITE, CAUCASIAN" & (is.na(tract5) | tract == tract5)), aes(x = G_1mi1, y = G_1mi5)) +
+      geom_point() + theme_classic() + ggtitle("WHITE, CAUCASIAN") + 
+      xlab("G* Exam 1") + ylab("G* Exam 5")
+ggplot(pdm %>% filter(race=="BLACK, AFRICAN-AMERICAN" & (is.na(tract5) | tract == tract5)), aes(x = G_1mi1, y = G_1mi5)) +
+      geom_point() + theme_classic() + ggtitle("BLACK, AFRICAN-AMERICAN") + 
+      xlab("G* Exam 1") + ylab("G* Exam 5")
+ggplot(pdm %>% filter(race=="HISPANIC" & (is.na(tract5) | tract == tract5)), aes(x = G_1mi1, y = G_1mi5)) +
+      geom_point() + theme_classic() + ggtitle("HISPANIC") + 
+      xlab("G* Exam 1") + ylab("G* Exam 5")
+
+```
+
+## Age Category Counts
+```{r}
+pdm %>% group_by(race) %>%
+  summarize("age < 55" = sum(age1c<55), 
+            "55 <= age < 65" = sum(age1c<65 & age1c>=55), 
+            "65 <= age < 75" = sum(age1c<75 & age1c>=65),
+            "age >= 75" = sum(age1c>=75)) %>%
+  gt()
+```
+
+
 
 # Exclusion/Inclusion
 ```{r}
 pdm.full$sample <- ifelse(pdm.full$idno %in% pdm$idno, "Included", "Excluded")
 
-incexl <- compareGroups(sample ~ G_1mi1 + race + gender + age5c + pov1 + 
-                           educ + mat.educ + 
-                          smk5 + ever.drink + bmi1c + chronic + MO,
-                        data=pdm.full)
-tab.incexl <- createTable(incexl)
-tab.incexl
 
-missing <- missingTable(incexl)
-missing
+incexl <- tbl_summary(pdm.full %>% select(sample, G_1mi1 , race , gender , age5c , pov1 , 
+                           educ , mat.educ , 
+                          smk1 , current.drink1 , bmi1c , chronic, MO),
+                        by=sample,
+                        type=list(chronic~"continuous"),
+                        statistic = list(
+                          all_continuous() ~ "{mean} ({sd})",
+                          all_categorical() ~ "{p}%",
+                          chronic ~ "{median}, [{p25},{p75}]"),
+                        label=list(race~"Race/Ethnicity",
+                                   gender~"Gender",
+                                   age5c~"Age Exam 5",
+                                   pov1~"Neighborhood Poverty",
+                                   educ~"Education",
+                                   mat.educ~"Maternal Education",
+                                   smk1~"Smoking at Exam 1",
+                                   current.drink1~"Drinking at Exam 1",
+                                   bmi1c~"BMI at Exam 1",
+                                   chronic~"Number chronic conditions")
+                      ) %>% add_p()
+incexl
 
-export2word(tab.incexl, file=file.path(save.R,'Tables/MESA_include_exclude.docx'))
-export2word(missing, file=file.path(save.R,'Tables/MESA_missing.docx'))
+incexl %>% as_flex_table() %>% 
+  flextable::save_as_docx(path=file.path(save.R,'Segregation_Clocks/Tables/Revised/MESA_include_exclude.docx'))
 ```
 
 
@@ -266,164 +396,133 @@ export2word(missing, file=file.path(save.R,'Tables/MESA_missing.docx'))
 ```{r descriptives}
 pdr$race <- factor(pdr$race, levels=c("BLACK, AFRICAN-AMERICAN", "WHITE, CAUCASIAN", "HISPANIC"))
 
-restab <- compareGroups(race ~ G_1mi1 +  
-                          grim.age + grim.accel + grim.posneg +
-                          hannum.age + hannum.accel + 
-                          horvath.age + horvath_resid + 
-                          pheno.age + pheno.accel +
-                          age5c + pov1 +
-                          gender + educ + mat.educ + smk5 + ever.drink + 
-                          bmi1c + chronic + MO,
-                        data=pdr)
-tab.mesa <- createTable(restab)
-export2word(tab.mesa, file=file.path(save.R,'Tables/MESA_table1.docx'))
 
-# missing <- missingTable(restab)
-# export2word(missing, file=file.path(save.R,'Tables/MESA_missing.docx'))
+grouptab <- tbl_summary(pdm %>% select(race, G_1mi1, grim.accel,
+                                     hannum.accel,
+                                     horvath_resid,
+                                     pheno.accel, 
+                                     age5c, pov1, gender, educ, mat.educ,
+                                     smk1, current.drink1, bmi1c, chronic,
+                                     smk5, current.drink5, bmi5c, chronic5, MO),
+                        by=race,
+                        type=list(chronic~"continuous", chronic5~"continuous"),
+                        statistic = list(
+                          all_continuous() ~ "{mean} ({sd})",
+                          all_categorical() ~ "{p}%",
+                          chronic ~ "{median}, [{p25},{p75}]",
+                          chronic5 ~ "{median}, [{p25},{p75}]"
+                        ),
+                        label=list(grim.accel~"GrimAge Accelerated Aging",
+                                   hannum.accel~"Hannum Accelerated Aging",
+                                   horvath_resid~"Horvath Accelerated Aging",
+                                   pheno.accel~"PhenoAge Accelerated Aging",
+                                   gender~"Gender",
+                                   age5c~"Age Exam 5",
+                                   pov1~"Neighborhood Poverty",
+                                   educ~"Education",
+                                   mat.educ~"Maternal Education",
+                                   smk1~"Smoking at Exam 1",
+                                   current.drink1~"Drinking at Exam 1",
+                                   bmi1c~"BMI at Exam 1",
+                                   chronic~"Number chronic conditions Exam 1",
+                                   smk5~"Smoking at Exam 5",
+                                   current.drink5~"Drinking at Exam 5",
+                                   bmi5c~"BMI at Exam 5",
+                                   chronic5~"Number chronic conditions Exam 5")
+                        ) %>% add_p() %>% add_overall()
+grouptab
 
-
-
-
-restab2 <- compareGroups(race ~ G_1mi1 + pov1 + age1c + age5c + 
-                          horvath.age + horvath_resid + levine.age + levine_resid +
-                          grim.age + grim.accel + 
-                          MO + B + CD4 + CD8 + GR + NK +
-                          gender + educ + mat.educ + smk5 + ever.drink + bmi1c,
-                        data=pdr[pdr$age1c<55,])
-tab.mesa2 <- createTable(restab2)
-export2word(tab.mesa2, file=file.path(save.R,'Tables/MESA_table1_young.docx'))
-
-tab.mesa
+grouptab %>% as_flex_table() %>% 
+  flextable::save_as_docx(path=file.path(save.R,'Segregation_Clocks/Tables/Revised/MESA_Descriptives.docx'))
 ```
 
 
 # Descriptives Bivariate Table
 ```{r}
-restab.white <- compareGroups(grim.posneg ~ G_1mi1 +  
-                          hannum.accel + horvath_resid + pheno.accel +
-                          age5c + pov1 +
-                          gender + educ + mat.educ + smk5 + ever.drink +
-                          bmi1c + chronic + MO,
-                        data=pd.resid$white)
-restab.black <- compareGroups(grim.posneg ~ G_1mi1 +  
-                          hannum.accel + horvath_resid + pheno.accel +
-                          age5c + pov1 +
-                          gender + educ + mat.educ + smk5 + ever.drink + 
-                          bmi1c + chronic + MO,
-                        data=pd.resid$black)
-restab.hispanic <- compareGroups(grim.posneg ~ G_1mi1 +  
-                          hannum.accel + horvath_resid + pheno.accel +
-                          age5c + pov1 +
-                          gender + educ + mat.educ + smk5 + ever.drink + 
-                          bmi1c + chronic + MO,
-                        data=pd.resid$hispanic)
+restab.white <- tbl_summary(pd.resid$white %>% select(grim.posneg, G_1mi1 ,  
+                          hannum.accel , horvath_resid , pheno.accel ,
+                          age5c , pov1 ,
+                          gender , educ , mat.educ , smk1 , current.drink1 ,
+                          bmi1c , chronic , MO),
+                        by=grim.posneg,
+                        type=list(chronic~"continuous"),
+                        statistic = list(
+                          all_continuous() ~ "{mean} ({sd})",
+                          all_categorical() ~ "{p}%",
+                          chronic ~ "{median}, [{p25},{p75}]"),
+                        label=list(hannum.accel~"Hannum Accelerated Aging",
+                                   horvath_resid~"Horvath Accelerated Aging",
+                                   pheno.accel~"PhenoAge Accelerated Aging",
+                                   gender~"Gender",
+                                   age5c~"Age Exam 5",
+                                   pov1~"Neighborhood Poverty",
+                                   educ~"Education",
+                                   mat.educ~"Maternal Education",
+                                   smk1~"Smoking at Exam 1",
+                                   current.drink1~"Drinking at Exam 1",
+                                   bmi1c~"BMI at Exam 1",
+                                   chronic~"Number chronic conditions")
+                      ) %>% add_p()
+restab.white
 
-tab.w <- createTable(restab.white)
-tab.b <- createTable(restab.black)
-tab.h <- createTable(restab.hispanic)
+restab.black <- tbl_summary(pd.resid$black %>% select(grim.posneg, G_1mi1 ,  
+                          hannum.accel , horvath_resid , pheno.accel ,
+                          age5c , pov1 ,
+                          gender , educ , mat.educ , smk1 , current.drink1 ,
+                          bmi1c , chronic , MO),
+                        by=grim.posneg,
+                        type=list(chronic~"continuous"),
+                        statistic = list(
+                          all_continuous() ~ "{mean} ({sd})",
+                          all_categorical() ~ "{p}%",
+                          chronic ~ "{median}, [{p25},{p75}]"),
+                        label=list(hannum.accel~"Hannum Accelerated Aging",
+                                   horvath_resid~"Horvath Accelerated Aging",
+                                   pheno.accel~"PhenoAge Accelerated Aging",
+                                   gender~"Gender",
+                                   age5c~"Age Exam 5",
+                                   pov1~"Neighborhood Poverty",
+                                   educ~"Education",
+                                   mat.educ~"Maternal Education",
+                                   smk1~"Smoking at Exam 1",
+                                   current.drink1~"Drinking at Exam 1",
+                                   bmi1c~"BMI at Exam 1",
+                                   chronic~"Number chronic conditions")
+                      ) %>% add_p()
+restab.black
 
-export2word(tab.w, file=file.path(save.R,'Tables/MESA_table_white_bivar.docx'))
-export2word(tab.b, file=file.path(save.R,'Tables/MESA_table_black_bivar.docx'))
-export2word(tab.h, file=file.path(save.R,'Tables/MESA_table_hispanic_bivar.docx'))
+restab.hispanic <- tbl_summary(pd.resid$hispanic %>% select(grim.posneg, G_1mi1 ,  
+                          hannum.accel , horvath_resid , pheno.accel ,
+                          age5c , pov1 ,
+                          gender , educ , mat.educ , smk1 , current.drink1 ,
+                          bmi1c , chronic , MO),
+                        by=grim.posneg,
+                        type=list(chronic~"continuous"),
+                        statistic = list(
+                          all_continuous() ~ "{mean} ({sd})",
+                          all_categorical() ~ "{p}%",
+                          chronic ~ "{median}, [{p25},{p75}]"),
+                        label=list(hannum.accel~"Hannum Accelerated Aging",
+                                   horvath_resid~"Horvath Accelerated Aging",
+                                   pheno.accel~"PhenoAge Accelerated Aging",
+                                   gender~"Gender",
+                                   age5c~"Age Exam 5",
+                                   pov1~"Neighborhood Poverty",
+                                   educ~"Education",
+                                   mat.educ~"Maternal Education",
+                                   smk1~"Smoking at Exam 1",
+                                   current.drink1~"Drinking at Exam 1",
+                                   bmi1c~"BMI at Exam 1",
+                                   chronic~"Number chronic conditions")
+                      ) %>% add_p()
+restab.hispanic
 
-```
-
-
-# Covariate Relationships
-```{r}
-covars <- c('horvath_resid','levine_resid','grim.accel','G_1mi1','MO','CD8','B','gender','educ','mat.educ'
-           ,'smk5','ever.drink','bmi1c','pov1')
-
-covar.mat <- matrix(0, nrow=length(covars), ncol=length(covars))
-rownames(covar.mat) <- covars
-colnames(covar.mat) <- covars
-
-for(cov1 in covars){
-  for(cov2 in covars){
-    Y = pdr[,cov1]
-    X = pdr[,cov2]
-    
-    if(class(Y)=='numeric'){
-      if(class(X)=='numeric'){
-        test = cor.test(Y,X)
-        pval = test$p.value
-      }else{
-        test = aov(Y~X)
-        pval = summary(test)[[1]][["Pr(>F)"]][[1]]
-      }
-    }else(
-      if(class(X)=='numeric'){
-        test = aov(X~Y)
-        pval = summary(test)[[1]][["Pr(>F)"]][[1]]
-      }else{
-        test = chisq.test(Y,X)
-        pval = test$p.value
-      }
-    )
-    
-    covar.mat[cov1,cov2] = pval
-  }
-}
-
-covar.mats <- lapply(pd.resid, FUN=function(pd.strat){
-  
-  mat <- covar.mat
-  
-  for(cov1 in covars){
-    for(cov2 in covars){
-      Y = pd.strat[,cov1]
-      X = pd.strat[,cov2]
-      
-      if(class(Y)=='numeric'){
-        if(class(X)=='numeric'){
-          test = cor.test(Y,X)
-          pval = test$p.value
-        }else{
-          test = aov(Y~X)
-          pval = summary(test)[[1]][["Pr(>F)"]][[1]]
-        }
-      }else(
-        if(class(X)=='numeric'){
-          test = aov(X~Y)
-          pval = summary(test)[[1]][["Pr(>F)"]][[1]]
-        }else{
-          test = chisq.test(Y,X)
-          pval = test$p.value
-        }
-      )
-      
-      mat[cov1,cov2] = pval
-    }
-  }
-  
-  mat[lower.tri(mat)] <- NA
-  mat.ggfriendly <- melt(mat)
-  mat.ggfriendly$value <- cut(mat.ggfriendly$value, breaks=c(0, 0.05, 0.1, 0.2, 0.5, 1.0))
-
-  mat.ggfriendly
-})
-
-
-ggplot(covar.mats$white, aes(x=Var1, y=Var2, fill=value)) +
-  geom_tile() +
-  scale_fill_manual(breaks=levels(covar.mats$value),
-                      values=c("darkred","red","orange","yellow","white")) +
-  theme(axis.text.x=element_text(angle=90)) +
-  xlab('') + ylab('') + ggtitle("White")
-
-ggplot(covar.mats$black, aes(x=Var1, y=Var2, fill=value)) +
-  geom_tile() +
-  scale_fill_manual(breaks=levels(covar.mats$value),
-                      values=c("darkred","red","orange","yellow","white")) +
-  theme(axis.text.x=element_text(angle=90)) +
-  xlab('') + ylab('') + ggtitle("Black")
-
-ggplot(covar.mats$hispanic, aes(x=Var1, y=Var2, fill=value)) +
-  geom_tile() +
-  scale_fill_manual(breaks=levels(covar.mats$value),
-                      values=c("darkred","red","orange","yellow","white")) +
-  theme(axis.text.x=element_text(angle=90)) +
-  xlab('') + ylab('') + ggtitle("Hispanic")
+restab.white %>% as_flex_table() %>% 
+  flextable::save_as_docx(path=file.path(save.R,'Segregation_Clocks/Tables/Revised/MESA_table_white_bivar.docx'))
+restab.black %>% as_flex_table() %>% 
+  flextable::save_as_docx(path=file.path(save.R,'Segregation_Clocks/Tables/Revised/MESA_table_black_bivar.docx'))
+restab.hispanic %>% as_flex_table() %>% 
+  flextable::save_as_docx(path=file.path(save.R,'Segregation_Clocks/Tables/Revised/MESA_table_hispanic_bivar.docx'))
 ```
 
 
@@ -497,7 +596,7 @@ figure1 <- grid.arrange(horvath_chrono, grim_chrono, pheno_chrono, hannum_chrono
                                               c(5,5)),
                         heights=c(1,1,0.2))
 
-ggsave(figure1, file=file.path(save.R,"Figures/Figure1_DNAmAge_v_Chrono.tiff"),
+ggsave(figure1, file=file.path(save.R,"Segregation_Clocks/Figures/Revised/Figure1_DNAmAge_v_Chrono.svg"),
        width=7, height=8)
 ```
 
@@ -752,16 +851,25 @@ models.seg <- function(pd.resid, clock.name){
   mod5.CL <- lapply(pd.resid, FUN=function(x){
     x$clock <- x[,clock.name]
     fit <- lm(clock ~ G_1mi1 + MO + CD8 + B + gender + educ + mat.educ
-              + smk5m + ever.drink + bmi1c + chronic + pov1, data=x)
+              + smk1m + current.drink1 + bmi1c + chronic + pov1, data=x)
+    cov <- vcovCL(fit, cluster = ~ tract)
+    coeftest(fit, vcov=cov)
+  })
+  
+  ### Model 5: Probable mediators exam 5 (smoking, alcohol, BMI, nhood poverty)
+  mod5B.CL <- lapply(pd.resid, FUN=function(x){
+    x$clock <- x[,clock.name]
+    fit <- lm(clock ~ G_1mi1 + MO + CD8 + B + gender + educ + mat.educ
+              + smk5m + current.drink5 + bmi5c + chronic5 + pov1, data=x)
     cov <- vcovCL(fit, cluster = ~ tract)
     coeftest(fit, vcov=cov)
   })
   
   
-  mods.CL <- list(Mod1=mod1.CL, Mod2=mod2.CL, Mod3=mod3.CL, Mod4A=mod4A.CL, Mod4B=mod4B.CL, Mod5=mod5.CL)
+  mods.CL <- list(Mod1=mod1.CL, Mod2=mod2.CL, Mod3=mod3.CL, Mod4A=mod4A.CL, Mod4B=mod4B.CL, Mod5=mod5.CL, Mod5B=mod5B.CL)
   
-  tab <- matrix(0, nrow=6, ncol=3)
-  rownames(tab) <- c("Mod1","Mod2","Mod3","Mod4A","Mod4B","Mod5")
+  tab <- matrix(0, nrow=7, ncol=3)
+  rownames(tab) <- c("Mod1","Mod2","Mod3","Mod4A","Mod4B","Mod5","Mod5B")
   colnames(tab) <- c("Beta", "SD", "P")
   tab <- data.frame(tab)
   tabs.CL <- list(white=tab,black=tab,hispanic=tab)
@@ -801,14 +909,31 @@ format.modest <- function(x){
 
 format.tab <- function(tabs){
   formatted <- data.frame(
-    "Model" = c("1","2","3","4A","4B","5"),
+    "Model" = c("1","2","3","4A","4B","5","5B"),
     "Non-Hispanic Black" = format.modest(tabs$black),
     "Non-Hispanic White" = format.modest(tabs$white),
     "Hispanic" = format.modest(tabs$hispanic)
   )
 }
   
+extensive_tab <- function(tabs){
+  formatted <- data.frame(
+    "Model" = c("1","2","3","4A","4B","5"),
+    "Non-Hispanic Black Estimate" = tabs$black$Beta,
+    "Non-Hispanic Black SD" = tabs$black$SD,
+    "Non-Hispanic Black P" = tabs$black$P,
+    "Non-Hispanic White Estimate" = format.modest(tabs$white$Beta),
+    "Non-Hispanic White SD" = format.modest(tabs$white$SD),
+    "Non-Hispanic White P" = format.modest(tabs$white$P),
+    "Hispanic Estimate" = format.modest(tabs$hispanic$Beta),
+    "Hispanic SD" = format.modest(tabs$hispanic$SD),
+    "Hispanic P" = format.modest(tabs$hispanic$P)
+  )
+}
 
+
+# initialize list of model results
+seg.mods <- list()
 ```
 
 
@@ -817,6 +942,8 @@ format.tab <- function(tabs){
 tabs.CL <- models.seg(pd.resid, "horvath_resid")
 tabs.CL <- lapply(tabs.CL, signif, 2)
 print(tabs.CL)
+
+seg.mods[['Horvath']] <- tabs.CL
 
 t3_horvath <- format.tab(tabs.CL)
 t3_horvath
@@ -828,6 +955,8 @@ tabs.CL <- models.seg(pd.resid, "levine_resid")
 tabs.CL <- lapply(tabs.CL, signif, 2)
 print(tabs.CL)
 
+seg.mods[['Levine']] <- tabs.CL
+
 t3_pheno <- format.tab(tabs.CL)
 t3_pheno
 ```
@@ -838,6 +967,8 @@ tabs.CL <- models.seg(pd.resid, "hannum.accel")
 tabs.CL <- lapply(tabs.CL, signif, 2)
 print(tabs.CL)
 
+seg.mods[['Hannum']] <- tabs.CL
+
 t3_hannum <- format.tab(tabs.CL)
 t3_hannum
 ```
@@ -847,6 +978,8 @@ t3_hannum
 tabs.CL <- models.seg(pd.resid, "grim.accel")
 tabs.CL <- lapply(tabs.CL, signif, 2)
 print(tabs.CL)
+
+seg.mods[['Grim']] <- tabs.CL
 
 t3_grim <- format.tab(tabs.CL)
 t3_grim
@@ -912,16 +1045,26 @@ models.seg.cat <- function(pd.resid, clock.name){
     x$clock <- x[,clock.name]
     x$seg_cat <- factor(x$seg_cat) %>% relevel(ref='reference')
     fit <- lm(clock ~ seg_cat + MO + CD8 + B + gender + educ + mat.educ
-              + smk5m + ever.drink + bmi1c + chronic + pov1, data=x)
+              + smk1m + current.drink1 + bmi1c + chronic + pov1, data=x)
+    cov <- vcovCL(fit, cluster = ~ tract)
+    coeftest(fit, vcov=cov)
+  })
+  
+  ### Model 5: Probable mediators exam 5 (smoking, alcohol, BMI, nhood poverty)
+  mod5B.CL <- lapply(pd.resid, FUN=function(x){
+    x$clock <- x[,clock.name]
+    x$seg_cat <- factor(x$seg_cat) %>% relevel(ref='reference')
+    fit <- lm(clock ~ seg_cat + MO + CD8 + B + gender + educ + mat.educ
+              + smk5m + current.drink5 + bmi5c + chronic5 + pov1, data=x)
     cov <- vcovCL(fit, cluster = ~ tract)
     coeftest(fit, vcov=cov)
   })
   
   
-  mods.CL <- list(Mod1=mod1.CL, Mod2=mod2.CL, Mod3=mod3.CL, Mod4A=mod4A.CL, Mod4B=mod4B.CL, Mod5=mod5.CL)
+  mods.CL <- list(Mod1=mod1.CL, Mod2=mod2.CL, Mod3=mod3.CL, Mod4A=mod4A.CL, Mod4B=mod4B.CL, Mod5=mod5.CL, Mod5B=mod5B.CL)
   
-  tab <- matrix(0, nrow=6, ncol=3)
-  rownames(tab) <- c("Mod1","Mod2","Mod3","Mod4A","Mod4B","Mod5")
+  tab <- matrix(0, nrow=7, ncol=3)
+  rownames(tab) <- c("Mod1","Mod2","Mod3","Mod4A","Mod4B","Mod5","Mod5B")
   colnames(tab) <- c("Beta", "SD", "P")
   tab <- data.frame(tab)
   tabs.CL <- list(white=tab,black=tab,hispanic=tab)
@@ -960,34 +1103,35 @@ seg_cat_pheno <- models.seg.cat(pd.resid, "pheno.accel")
 seg_cat_horv <- models.seg.cat(pd.resid, "horvath_resid")
 seg_cat_han <- models.seg.cat(pd.resid, "hannum.accel")
 
-### formatting tables
+seg.mods.cat <- list(Horvath=seg_cat_horv, Levine=seg_cat_pheno, Hannum=seg_cat_han, Grim=seg_cat_grim)
+```
 
-format.modest <- function(x){
-  symbol = ifelse(x$P < 0.001, "***",
-           ifelse(x$P < 0.01, "**", 
-           ifelse(x$P < 0.05, "*",
-           ifelse(x$P < 0.1, "†", ""))))
-  paste0(x[,1], " (", x$SD, ")", symbol)
-}
 
-format.tab <- function(tabs){
-  formatted <- data.frame(
-    "Model" = c("1","2","3","4A","4B","5"),
-    "Non-Hispanic Black Clustered" = format.modest(tabs$black[,1:3]),
-    "Non-Hispanic Black Very Clustered" = format.modest(tabs$black[,4:6]),
-    "Non-Hispanic White Underclustered" = format.modest(tabs$white[,1:3]),
-    "Non-Hispanic White Clustered" = format.modest(tabs$white[,4:6]),
-    "Hispanic Very Clustered" = format.modest(tabs$hispanic)
-  )
-}
+# Models Seg No Move Sensitivity
 
-seg_cat_grim_format <- format.tab(seg_cat_grim)
-seg_cat_pheno_format <- format.tab(seg_cat_pheno)
-seg_cat_horv_format <- format.tab(seg_cat_horv)
-seg_cat_han_format <- format.tab(seg_cat_han)
+```{r}
+pd.nomove <- lapply(pd.resid, FUN=function(group){
+  group %>% filter(!is.na(tract5) & tract==tract5)
+})
 
-table3_cat <- list(grim=seg_cat_grim_format, hannum=seg_cat_han_format, horvath=seg_cat_horv_format, pheno=seg_cat_pheno_format)
-write.xlsx(table3_cat , file=file.path(save.R,"Segregation_Clocks/Tables/Table3_seg_categorical.xlsx"), overwrite=T)
+seg.mods.nomove <- list()
+
+seg.mods.nomove[['Horvath']] <- models.seg(pd.nomove, "horvath_resid") %>% lapply(signif, 2)
+seg.mods.nomove[['Levine']] <- models.seg(pd.nomove, "levine_resid") %>% lapply(signif, 2)
+seg.mods.nomove[['Hannum']] <- models.seg(pd.nomove, "hannum.accel") %>% lapply(signif, 2)
+seg.mods.nomove[['Grim']] <- models.seg(pd.nomove, "grim.accel") %>% lapply(signif, 2)
+
+
+pd.move <- lapply(pd.resid, FUN=function(group){
+  group %>% filter(!is.na(tract5) & tract!=tract5)
+})
+
+seg.mods.move <- list()
+
+seg.mods.move[['Horvath']] <- models.seg(pd.move, "horvath_resid") %>% lapply(signif, 2)
+seg.mods.move[['Levine']] <- models.seg(pd.move, "levine_resid") %>% lapply(signif, 2)
+seg.mods.move[['Hannum']] <- models.seg(pd.move, "hannum.accel") %>% lapply(signif, 2)
+seg.mods.move[['Grim']] <- models.seg(pd.move, "grim.accel") %>% lapply(signif, 2)
 ```
 
 
@@ -1070,27 +1214,44 @@ models.pov <- function(pd.resid, clock.name){
   
   ### Model 5: Probable mediators (smoking, alcohol, BMI, nhood poverty)
   mod5.CL <- lapply(pd.resid, FUN=function(x){
-    if(nrow(x)==nrow(pd.nons$full)){
+    if(nrow(x)>600){
       x$clock <- x[,clock.name]
       fit <- lm(clock ~ pov1z + MO + CD8 + B + gender + educ + mat.educ + race +
-              + smk5m + ever.drink + bmi1c + chronic + G_1mi1, data=x)
+              + smk1m + current.drink1 + bmi1c + chronic + G_1mi1, data=x)
       cov <- vcovCL(fit, cluster = ~ tract)
       coeftest(fit, vcov=cov)
     }else{
       x$clock <- x[,clock.name]
       fit <- lm(clock ~ pov1z + MO + CD8 + B + gender + educ + mat.educ
-              + smk5m + ever.drink + bmi1c + chronic + G_1mi1, data=x)
+              + smk1m + current.drink1 + bmi1c + chronic + G_1mi1, data=x)
       cov <- vcovCL(fit, cluster = ~ tract)
       coeftest(fit, vcov=cov)
     }
-    
+
   })
   
+  ### Model 5: Probable mediators (smoking, alcohol, BMI, nhood poverty)
+  mod5B.CL <- lapply(pd.resid, FUN=function(x){
+    if(nrow(x)>600){
+      x$clock <- x[,clock.name]
+      fit <- lm(clock ~ pov1z + MO + CD8 + B + gender + educ + mat.educ + race +
+              + smk5m + current.drink5 + bmi5c + chronic5 + G_1mi1, data=x)
+      cov <- vcovCL(fit, cluster = ~ tract)
+      coeftest(fit, vcov=cov)
+    }else{
+      x$clock <- x[,clock.name]
+      fit <- lm(clock ~ pov1z + MO + CD8 + B + gender + educ + mat.educ
+              + smk5m + current.drink5 + bmi5c + chronic5 + G_1mi1, data=x)
+      cov <- vcovCL(fit, cluster = ~ tract)
+      coeftest(fit, vcov=cov)
+    }
+
+  })
   
-  mods.CL <- list(Mod1=mod1.CL, Mod2=mod2.CL, Mod3=mod3.CL, Mod4A=mod4A.CL, Mod4B=mod4B.CL, Mod5=mod5.CL)
+  mods.CL <- list(Mod1=mod1.CL, Mod2=mod2.CL, Mod3=mod3.CL, Mod4A=mod4A.CL, Mod4B=mod4B.CL, Mod5=mod5.CL, Mod5B=mod5B.CL)
   
-  tab <- matrix(0, nrow=6, ncol=3)
-  rownames(tab) <- c("Mod1","Mod2","Mod3","Mod4A","Mod4B","Mod5")
+  tab <- matrix(0, nrow=7, ncol=3)
+  rownames(tab) <- c("Mod1","Mod2","Mod3","Mod4A","Mod4B","Mod5","Mod5B")
   colnames(tab) <- c("Beta", "SD", "P")
   tab <- data.frame(tab)
   tabs.CL <- list(white=tab,black=tab,hispanic=tab,full=tab)
@@ -1127,7 +1288,7 @@ models.pov <- function(pd.resid, clock.name){
 
 format.tab2 <- function(tabs){
   formatted <- data.frame(
-    "Model" = c("1","2","3","4A","4B","5"),
+    "Model" = c("1","2","3","4A","4B","5","5B"),
     "Non-Hispanic Black" = format.modest(tabs$black),
     "Non-Hispanic White" = format.modest(tabs$white),
     "Hispanic" = format.modest(tabs$hispanic),
@@ -1137,6 +1298,9 @@ format.tab2 <- function(tabs){
 
 pd.nons <- pd.resid
 pd.nons$full <- pdr
+
+# initialize list of model results
+pov.mods <- list()
 ```
 
 ## Horvath
@@ -1144,6 +1308,8 @@ pd.nons$full <- pdr
 tabs.CL <- models.pov(pd.nons, "horvath_resid")
 tabs.CL <- lapply(tabs.CL, signif, 2)
 print(tabs.CL)
+
+pov.mods[['Horvath']] <- tabs.CL
 
 t4_horvath <- format.tab2(tabs.CL)
 t4_horvath
@@ -1155,6 +1321,8 @@ tabs.CL <- models.pov(pd.nons, "levine_resid")
 tabs.CL <- lapply(tabs.CL, signif, 2)
 print(tabs.CL)
 
+pov.mods[['Levine']] <- tabs.CL
+
 t4_pheno <- format.tab2(tabs.CL)
 t4_pheno
 ```
@@ -1164,6 +1332,8 @@ t4_pheno
 tabs.CL <- models.pov(pd.nons, "hannum.accel")
 tabs.CL <- lapply(tabs.CL, signif, 2)
 print(tabs.CL)
+
+pov.mods[["Hannum"]] <- tabs.CL
 
 t4_hannum <- format.tab2(tabs.CL)
 t4_hannum
@@ -1175,6 +1345,8 @@ tabs.CL <- models.pov(pd.nons, "grim.accel")
 tabs.CL <- lapply(tabs.CL, signif, 2)
 print(tabs.CL)
 
+pov.mods[["Grim"]] <- tabs.CL
+
 t4_grim <- format.tab2(tabs.CL)
 t4_grim
 ```
@@ -1184,6 +1356,389 @@ table4 <- list(grim=t4_grim, hannum=t4_hannum, horvath=t4_horvath, pheno=t4_phen
 write.xlsx(table4 , file=file.path(save.R,"Tables/Table4_pov.xlsx"), overwrite=T)
 ```
 
+
+# Models Pov No Move Sensitivity
+
+```{r}
+pd.nomove2 <- lapply(pd.nons, FUN=function(group){
+  group %>% filter(!is.na(tract5) & tract==tract5)
+})
+
+pov.mods.nomove <- list()
+
+pov.mods.nomove[['Horvath']] <- models.pov(pd.nomove2, "horvath_resid") %>% lapply(signif, 2)
+pov.mods.nomove[['Levine']] <- models.pov(pd.nomove2, "levine_resid") %>% lapply(signif, 2)
+pov.mods.nomove[['Hannum']] <- models.pov(pd.nomove2, "hannum.accel") %>% lapply(signif, 2)
+pov.mods.nomove[['Grim']] <- models.pov(pd.nomove2, "grim.accel") %>% lapply(signif, 2)
+
+
+pd.move2 <- lapply(pd.nons, FUN=function(group){
+  group %>% filter(!is.na(tract5) & tract!=tract5)
+})
+
+pov.mods.move <- list()
+
+pov.mods.move[['Horvath']] <- models.pov(pd.move2, "horvath_resid") %>% lapply(signif, 2)
+pov.mods.move[['Levine']] <- models.pov(pd.move2, "levine_resid") %>% lapply(signif, 2)
+pov.mods.move[['Hannum']] <- models.pov(pd.move2, "hannum.accel") %>% lapply(signif, 2)
+pov.mods.move[['Grim']] <- models.pov(pd.move2, "grim.accel") %>% lapply(signif, 2)
+
+```
+
+
+
+
+# Results Table (CI and BH)
+
+## Main Results
+```{r}
+### tables with BH-correction and confidence intervals
+
+# add in confidence intervals
+for(clock in names(seg.mods)){
+  for(group in names(seg.mods[[clock]])){
+    temp <- seg.mods[[clock]][[group]]
+    seg.mods[[clock]][[group]]$CI <- paste0(
+      temp$Beta, ' (',
+      round(temp$Beta - 1.96 * temp$SD, 3), ', ',
+      round(temp$Beta + 1.96 * temp$SD, 3), ')'
+    )
+  }
+}
+
+for(clock in names(pov.mods)){
+  for(group in names(pov.mods[[clock]])){
+    temp <- pov.mods[[clock]][[group]]
+    pov.mods[[clock]][[group]]$CI <- paste0(
+      temp$Beta, ' (',
+      round(temp$Beta - 1.96 * temp$SD, 3), ', ',
+      round(temp$Beta + 1.96 * temp$SD, 3), ')'
+    )
+  }
+}
+
+
+# apply BH correction
+mods <- seg.mods$Horvath$white %>% rownames()
+
+for(m in mods){
+  segPs <- sapply(seg.mods, FUN=function(clocks){
+    sapply(clocks, FUN=function(groups){
+      groups[m,'P']
+    })
+  })
+  povPs <- sapply(pov.mods, FUN=function(clocks){
+    sapply(clocks, FUN=function(groups){
+      groups[m,'P']
+    })
+  })
+  
+  adjusted <- p.adjust(c(segPs, povPs), method='BH') %>% signif(3)
+  
+  segPs_adj <- segPs 
+  segPs_adj[1:12] <- adjusted[1:12]
+  povPs_adj <- povPs
+  povPs_adj[1:16] <- adjusted[13:28]
+  
+  for(clocks in colnames(segPs)){
+    for(groups in rownames(segPs)){
+      seg.mods[[clocks]][[groups]][m,'BH'] <- segPs_adj[groups, clocks]
+    }
+  }
+  for(clocks in colnames(povPs)){
+    for(groups in rownames(povPs)){
+      pov.mods[[clocks]][[groups]][m,'BH'] <- povPs_adj[groups, clocks]
+    }
+  }
+}
+
+format.tab.ultima <- function(tabs){
+  if(length(tabs)==3){
+    formatted <- data.frame(
+      "Model" = c("1","2","3","4A","4B","5","5B"),
+      "Non-Hispanic Black Beta" = tabs$black$Beta,
+      "Non-Hispanic Black SD" = tabs$black$SD,
+      "Non-Hispanic Black P" = tabs$black$P,
+      "Non-Hispanic Black CI" = tabs$black$CI,
+      "Non-Hispanic Black BH" = tabs$black$BH,
+      "Non-Hispanic White Beta" = tabs$white$Beta,
+      "Non-Hispanic White SD" = tabs$white$SD,
+      "Non-Hispanic White P" = tabs$white$P,
+      "Non-Hispanic White CI" = tabs$white$CI,
+      "Non-Hispanic White BH" = tabs$white$BH,
+      "Hispanic Beta" = tabs$hispanic$Beta,
+      "Hispanic SD" = tabs$hispanic$SD,
+      "Hispanic P" = tabs$hispanic$P,
+      "Hispanic CI" = tabs$hispanic$CI,
+      "Hispanic BH" = tabs$hispanic$BH
+    )
+  }else{
+    formatted <- data.frame(
+      "Model" = c("1","2","3","4A","4B","5","5B"),
+      "Non-Hispanic Black Beta" = tabs$black$Beta,
+      "Non-Hispanic Black SD" = tabs$black$SD,
+      "Non-Hispanic Black P" = tabs$black$P,
+      "Non-Hispanic Black CI" = tabs$black$CI,
+      "Non-Hispanic Black BH" = tabs$black$BH,
+      "Non-Hispanic White Beta" = tabs$white$Beta,
+      "Non-Hispanic White SD" = tabs$white$SD,
+      "Non-Hispanic White P" = tabs$white$P,
+      "Non-Hispanic White CI" = tabs$white$CI,
+      "Non-Hispanic White BH" = tabs$white$BH,
+      "Hispanic Beta" = tabs$hispanic$Beta,
+      "Hispanic SD" = tabs$hispanic$SD,
+      "Hispanic P" = tabs$hispanic$P,
+      "Hispanic CI" = tabs$hispanic$CI,
+      "Hispanic BH" = tabs$hispanic$BH,
+      "Full Beta" = tabs$full$Beta,
+      "Full SD" = tabs$full$SD,
+      "Full P" = tabs$full$P,
+      "Full CI" = tabs$full$CI,
+      "Full BH" = tabs$full$BH
+    )
+  }
+}
+
+seg.mods.format <- lapply(seg.mods, format.tab.ultima)
+pov.mods.format <- lapply(pov.mods, format.tab.ultima)
+
+write.xlsx(seg.mods.format , file=file.path(save.R,"Segregation_Clocks/Tables/Revised/Segregation_models.xlsx"), overwrite=T)
+write.xlsx(pov.mods.format , file=file.path(save.R,"Segregation_Clocks/Tables/Revised/Poverty_models.xlsx"), overwrite=T)
+```
+
+## Categorical Segregation
+```{r}
+### categorical segregation models
+# add in confidence intervals
+get_CI <- function(beta, sd){
+  paste0(
+      beta, ' (',
+      round(beta - 1.96 * sd, 3), ', ',
+      round(beta + 1.96 * sd, 3), ')'
+    )
+}
+
+for(clock in names(seg.mods.cat)){
+  for(group in names(seg.mods.cat[[clock]])){
+    temp <- seg.mods.cat[[clock]][[group]]
+    if(group=='white'){
+      underCI = get_CI(temp[,1], temp[,2])
+      clustCI = get_CI(temp[,4], temp[,5])
+      temp <- cbind(temp[,1:3], underCI, underBH=NA, temp[,4:6], clustCI, clustBH=NA)
+    }else if(group=='black'){
+      clustCI = get_CI(temp[,1], temp[,2])
+      vclustCI = get_CI(temp[,4], temp[,5])
+      temp <- cbind(temp[,1:3], clustCI, clustBH=NA, temp[,4:6], vclustCI, vclustBH=NA)
+    }else if(group=='hispanic'){
+      vclustCI = get_CI(temp[,1], temp[,2])
+      temp <- cbind(temp[,1:3], vclustCI, vclustBH=NA)
+    }
+    seg.mods.cat[[clock]][[group]] <- temp
+  }
+}
+
+# apply BH correction
+mods <- seg.mods.cat$Horvath$white %>% rownames()
+
+for(m in mods){
+  segPs <- c()
+  for(clocks in seg.mods.cat){
+    for(groups in clocks){
+      if(ncol(groups)==10){
+        segPs <- c(segPs, groups[m,3], groups[m,7])
+      }else{
+        segPs <- c(segPs, groups[m,'P'])
+      }
+    }
+  }
+
+  adjusted <- p.adjust(segPs, method='BH') %>% signif(3)
+  
+  for(clock in names(seg.mods.cat)){
+    index = ifelse(clock=="Horvath", 1,
+            ifelse(clock=="Levine", 6,
+            ifelse(clock=="Hannum", 11,
+                    16)))
+    
+    seg.mods.cat[[clock]][["white"]][m,"underBH"] <- adjusted[index]
+    seg.mods.cat[[clock]][["white"]][m,"clustBH"] <- adjusted[index+1]
+    seg.mods.cat[[clock]][["black"]][m,"clustBH"] <- adjusted[index+2]
+    seg.mods.cat[[clock]][["black"]][m,"vclustBH"] <- adjusted[index+3]
+    seg.mods.cat[[clock]][["hispanic"]][m,"vclustBH"] <- adjusted[index+4]
+  }
+  
+}
+
+format.tab.ultima.cat <- function(tabs){
+  formatted <- data.frame(
+      "Model" = c("1","2","3","4A","4B","5","5B"),
+      "Non-Hispanic Black Clustered Beta" = tabs$black$clustered,
+      "Non-Hispanic Black clustered SD" = tabs$black[,2],
+      "Non-Hispanic Black clustered P" = tabs$black[,3],
+      "Non-Hispanic Black clustered CI" = tabs$black$clustCI,
+      "Non-Hispanic Black clustered BH" = tabs$black$clustBH,
+      "Non-Hispanic Black Very Clustered Beta" = tabs$black$'very clustered',
+      "Non-Hispanic Black Very clustered SD" = tabs$black[,7],
+      "Non-Hispanic Black Very clustered P" = tabs$black[,8],
+      "Non-Hispanic Black Very clustered CI" = tabs$black$vclustCI,
+      "Non-Hispanic Black Very clustered BH" = tabs$black$vclustBH,
+      "Non-Hispanic White Under Clustered Beta" = tabs$white$underclustered,
+      "Non-Hispanic White Under Clustered SD" = tabs$white[,2],
+      "Non-Hispanic White Under Clustered P" = tabs$white[,3],
+      "Non-Hispanic White Under Clustered CI" = tabs$white$underCI,
+      "Non-Hispanic White Under Clustered BH" = tabs$white$underBH,
+      "Non-Hispanic White Clustered Beta" = tabs$white$clustered,
+      "Non-Hispanic White Clustered SD" = tabs$white[,7],
+      "Non-Hispanic White Clustered P" = tabs$white[,8],
+      "Non-Hispanic White Clustered CI" = tabs$white$clustCI,
+      "Non-Hispanic White Clustered BH" = tabs$white$clustBH,
+      "Hispanic Very Clustered Beta" = tabs$hispanic$'very clustered',
+      "Hispanic Very Clustered SD" = tabs$hispanic$SD,
+      "Hispanic Very Clustered P" = tabs$hispanic$P,
+      "Hispanic Very Clustered CI" = tabs$hispanic$vclustCI,
+      "Hispanic Very Clustered BH" = tabs$hispanic$vclustBH
+  )
+}
+
+seg.mods.cat.format <- lapply(seg.mods.cat, format.tab.ultima.cat)
+
+write.xlsx(seg.mods.cat.format , file=file.path(save.R,"Segregation_Clocks/Tables/Revised/Segregation_models_categorical.xlsx"), colWidths=30, overwrite=T)
+```
+
+
+## No Move Sensitivity
+```{r}
+# add in confidence intervals
+for(clock in names(seg.mods.nomove)){
+  for(group in names(seg.mods.nomove[[clock]])){
+    temp <- seg.mods.nomove[[clock]][[group]]
+    seg.mods.nomove[[clock]][[group]]$CI <- paste0(
+      temp$Beta, ' (',
+      round(temp$Beta - 1.96 * temp$SD, 3), ', ',
+      round(temp$Beta + 1.96 * temp$SD, 3), ')'
+    )
+  }
+}
+
+for(clock in names(pov.mods.nomove)){
+  for(group in names(pov.mods.nomove[[clock]])){
+    temp <- pov.mods.nomove[[clock]][[group]]
+    pov.mods.nomove[[clock]][[group]]$CI <- paste0(
+      temp$Beta, ' (',
+      round(temp$Beta - 1.96 * temp$SD, 3), ', ',
+      round(temp$Beta + 1.96 * temp$SD, 3), ')'
+    )
+  }
+}
+
+
+# apply BH correction
+mods <- seg.mods.nomove$Horvath$white %>% rownames()
+
+for(m in mods){
+  segPs <- sapply(seg.mods.nomove, FUN=function(clocks){
+    sapply(clocks, FUN=function(groups){
+      groups[m,'P']
+    })
+  })
+  povPs <- sapply(pov.mods.nomove, FUN=function(clocks){
+    sapply(clocks, FUN=function(groups){
+      groups[m,'P']
+    })
+  })
+  
+  adjusted <- p.adjust(c(segPs, povPs), method='BH') %>% signif(3)
+  
+  segPs_adj <- segPs 
+  segPs_adj[1:12] <- adjusted[1:12]
+  povPs_adj <- povPs
+  povPs_adj[1:16] <- adjusted[13:28]
+  
+  for(clocks in colnames(segPs)){
+    for(groups in rownames(segPs)){
+      seg.mods.nomove[[clocks]][[groups]][m,'BH'] <- segPs_adj[groups, clocks]
+    }
+  }
+  for(clocks in colnames(povPs)){
+    for(groups in rownames(povPs)){
+      pov.mods.nomove[[clocks]][[groups]][m,'BH'] <- povPs_adj[groups, clocks]
+    }
+  }
+}
+
+seg.mods.nomove.format <- lapply(seg.mods.nomove, format.tab.ultima)
+pov.mods.nomove.format <- lapply(pov.mods.nomove, format.tab.ultima)
+
+write.xlsx(seg.mods.nomove.format , file=file.path(save.R,"Segregation_Clocks/Tables/Revised/Segregation_models_nomovers.xlsx"), overwrite=T)
+write.xlsx(pov.mods.nomove.format , file=file.path(save.R,"Segregation_Clocks/Tables/revised/Poverty_models_nomovers.xlsx"), overwrite=T)
+```
+
+## Move Sensitivity
+```{r}
+# add in confidence intervals
+for(clock in names(seg.mods.move)){
+  for(group in names(seg.mods.move[[clock]])){
+    temp <- seg.mods.move[[clock]][[group]]
+    seg.mods.move[[clock]][[group]]$CI <- paste0(
+      temp$Beta, ' (',
+      round(temp$Beta - 1.96 * temp$SD, 3), ', ',
+      round(temp$Beta + 1.96 * temp$SD, 3), ')'
+    )
+  }
+}
+
+for(clock in names(pov.mods.move)){
+  for(group in names(pov.mods.move[[clock]])){
+    temp <- pov.mods.move[[clock]][[group]]
+    pov.mods.move[[clock]][[group]]$CI <- paste0(
+      temp$Beta, ' (',
+      round(temp$Beta - 1.96 * temp$SD, 3), ', ',
+      round(temp$Beta + 1.96 * temp$SD, 3), ')'
+    )
+  }
+}
+
+
+# apply BH correction
+mods <- seg.mods.move$Horvath$white %>% rownames()
+
+for(m in mods){
+  segPs <- sapply(seg.mods.move, FUN=function(clocks){
+    sapply(clocks, FUN=function(groups){
+      groups[m,'P']
+    })
+  })
+  povPs <- sapply(pov.mods.move, FUN=function(clocks){
+    sapply(clocks, FUN=function(groups){
+      groups[m,'P']
+    })
+  })
+  
+  adjusted <- p.adjust(c(segPs, povPs), method='BH') %>% signif(3)
+  
+  segPs_adj <- segPs 
+  segPs_adj[1:12] <- adjusted[1:12]
+  povPs_adj <- povPs
+  povPs_adj[1:16] <- adjusted[13:28]
+  
+  for(clocks in colnames(segPs)){
+    for(groups in rownames(segPs)){
+      seg.mods.move[[clocks]][[groups]][m,'BH'] <- segPs_adj[groups, clocks]
+    }
+  }
+  for(clocks in colnames(povPs)){
+    for(groups in rownames(povPs)){
+      pov.mods.move[[clocks]][[groups]][m,'BH'] <- povPs_adj[groups, clocks]
+    }
+  }
+}
+
+seg.mods.move.format <- lapply(seg.mods.move, format.tab.ultima)
+pov.mods.move.format <- lapply(pov.mods.move, format.tab.ultima)
+
+write.xlsx(seg.mods.move.format , file=file.path(save.R,"Segregation_Clocks/Tables/Revised/Segregation_models_movers.xlsx"), overwrite=T)
+write.xlsx(pov.mods.move.format , file=file.path(save.R,"Segregation_Clocks/Tables/revised/Poverty_models_movers.xlsx"), overwrite=T)
+```
 
 
 # Interaction {.tabset}
@@ -1470,21 +2025,33 @@ grim_intH_f2 <- grim_intH +
         legend.position = 'none') +
   coord_cartesian(ylim = c(-5,8), xlim = c(-5,12)) 
 
+dummy <- data.frame(pov=sample(c(1,0,-1),500, replace=T),
+                    x=sample(c(1:10),500, replace=T))
+dummy$y <- dummy$x*(dummy$pov) + 1.2* (dummy$x)^2
+dummy$pov <- factor(dummy$pov , levels=c(1,0,-1), 
+                    labels=c("1 Standard Deviation Above Mean", "Mean", "1 Standard Deviation Below Mean"))
+dummy_plot <- ggplot(dummy, aes(x=x, y=y, linetype=pov)) +
+  geom_line() + theme_bw() + scale_linetype_manual(values=c("solid", "longdash", "dashed")) +
+  guides(linetype=guide_legend(title="Neighborhood Poverty"))
+int_legend <- dummy_plot %>% get_legend()
 
 
-figure2 <- grid.arrange(grim_intB_f2, grim_intW_f2, grim_intH_f2,
-                             layout_matrix = rbind(c(1,2,3)),
-                             heights=c(1),
+figure2 <- grid.arrange(grim_intB_f2, grim_intW_f2, grim_intH_f2, int_legend,
+                             layout_matrix = rbind(c(5,4,5),
+                                                   c(1,2,3)),
+                             heights=c(0.5,1),
                         left = textGrob("Grim Age Acceleration", gp=gpar(fontsize=16), rot=90),
                         bottom = textGrob("Gi*", gp=gpar(fontsize=16))) 
 
-ggsave(figure2, file=file.path(save.R,"Figures/Figure2_grim_interact.tiff"),
+ggsave(figure2, file=file.path(save.R,"Segregation_Clocks/Figures/Revised/grim_interact.tiff"),
        width=8.5, height=4)
+ggsave(figure2, file=file.path(save.R,"Segregation_Clocks/Figures/Revised/grim_interact.pdf"),
+       width=8.5, height=4)
+```
 
 
 
-
-
+```{r}
 hannum_intW_f2 <- hannum_intW + 
   ggtitle("Non-Hispanic White") + xlab("") + ylab("") +
   theme_bw() +
