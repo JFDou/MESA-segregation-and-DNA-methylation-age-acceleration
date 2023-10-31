@@ -369,6 +369,9 @@ incexl <- tbl_summary(pdm.full %>% select(sample, G_1mi1 , race , gender , age5c
                            educ , mat.educ , 
                           smk1 , current.drink1 , bmi1c , chronic, MO),
                         by=sample,
+                        digits=list(
+                          all_continuous() ~ c(2,2)
+                        ),
                         type=list(chronic~"continuous"),
                         statistic = list(
                           all_continuous() ~ "{mean} ({sd})",
@@ -391,6 +394,76 @@ incexl %>% as_flex_table() %>%
   flextable::save_as_docx(path=file.path(save.R,'Segregation_Clocks/Tables/Revised/MESA_include_exclude.docx'))
 ```
 
+## sampled individuals
+```{r}
+eligible.sites <- cov %>% filter(site1c %in% c(3,4,5,6))
+eligible.sites$site <- case_when(eligible.sites$site1c == 3 ~ "WFU",
+                                 eligible.sites$site1c == 4 ~ "COL",
+                                 eligible.sites$site1c == 5 ~ "JHU",
+                                 eligible.sites$site1c == 6 ~ "UMN")
+eligible.sites$in_exam5 <- !is.na(eligible.sites$age5c)
+eligible.sites <- eligible.sites %>% select(idno, site, race1c, in_exam5)
+eligible.sites$G_1mi <- tract1[match(eligible.sites$idno, tract1$idno),]$G_1mi
+eligible.sites$pov <- cen1[match(eligible.sites$idno, cen1$idno),]$pov
+eligible.sites$in_sample <- eligible.sites$idno %in% pdm$idno
+eligible.sites$race <- case_when(eligible.sites$race1c == 1 ~ "CAUCASIAN",
+                                 eligible.sites$race1c == 2 ~ "CHINESE-AMERICAN",
+                                 eligible.sites$race1c == 3 ~ "AFRICAN-AMERICAN",
+                                 eligible.sites$race1c == 4 ~ "HISPANIC")
+eligible.sites$count = TRUE
+
+neighborhood_DNAm_sample <- tbl_strata(eligible.sites,
+    strata = c(site, race),
+    .tbl_fun =
+      ~ .x %>%
+        tbl_summary(by = in_exam5, missing = "no",
+                    include = c(count, G_1mi, pov),
+                    type=list(count~"categorical",
+                              G_1mi~"continuous", 
+                              pov~"continuous"),
+                    statistic=list(count~"{n}")) %>%
+        add_p(),
+    .header = "**{strata}**",
+    .combine_with = "tbl_stack"
+  )
+neighborhood_DNAm_sample
+
+
+tbl_summary(by = in_exam5, missing = "no",
+                    include = c(count, G_1mi, pov),
+                    type=list(count~"categorical",
+                              G_1mi~"continuous", 
+                              pov~"continuous"),
+                    statistic=list(count~"{n}")) %>%
+        add_p()
+# tab_list <- list()
+# for(place in c("COL","JHU","UMN","WFU")){
+#   for(group in c("CAUCASIAN","CHINESE-AMERICAN","AFRICAN-AMERICAN","HISPANIC")){
+#     slice = eligible.sites %>% filter(site == place & race == group)
+#     if(nrow(slice) != 0){
+#       slicetab <- tbl_summary(slice, 
+#                 by = in_sample, missing = "no",
+#                 include = c(G_1mi, pov),
+#                 type=list(G_1mi~"continuous", 
+#                           pov~"continuous")) %>%
+#         add_p()
+#       slicetab <- modify_header(slicetab,
+#                                 label = paste0("**",place,", ",group,"**"))
+#       tab_list <- append(tab_list, list(slicetab))
+#     }else{
+#       tab_list <- append(tab_list,NA)
+#     }
+#   }
+# }
+# 
+# tbl_stack(tab_list[!is.na(tab_list)])
+# 
+# print(rbind(as_hux_table(tab_list[[1]]), as_hux_table(tab_list[[2]])))
+
+neighborhood_DNAm_sample %>% as_flex_table() %>% 
+  flextable::save_as_docx(path=file.path(save.R,'Segregation_Clocks/Tables/Revised/MESA_all_vs_DNAm_sample_neighborhood.docx'))
+
+```
 
 # Descriptives Table
 ```{r descriptives}
@@ -405,6 +478,9 @@ grouptab <- tbl_summary(pdm %>% select(race, G_1mi1, grim.accel,
                                      smk1, current.drink1, bmi1c, chronic,
                                      smk5, current.drink5, bmi5c, chronic5, MO),
                         by=race,
+                        digits=list(
+                          all_continuous() ~ c(2,2)
+                        ),
                         type=list(chronic~"continuous", chronic5~"continuous"),
                         statistic = list(
                           all_continuous() ~ "{mean} ({sd})",
@@ -445,6 +521,9 @@ restab.white <- tbl_summary(pd.resid$white %>% select(grim.posneg, G_1mi1 ,
                           gender , educ , mat.educ , smk1 , current.drink1 ,
                           bmi1c , chronic , MO),
                         by=grim.posneg,
+                        digits=list(
+                          all_continuous() ~ c(2,2)
+                        ),
                         type=list(chronic~"continuous"),
                         statistic = list(
                           all_continuous() ~ "{mean} ({sd})",
@@ -471,6 +550,9 @@ restab.black <- tbl_summary(pd.resid$black %>% select(grim.posneg, G_1mi1 ,
                           gender , educ , mat.educ , smk1 , current.drink1 ,
                           bmi1c , chronic , MO),
                         by=grim.posneg,
+                        digits=list(
+                          all_continuous() ~ c(2,2)
+                        ),
                         type=list(chronic~"continuous"),
                         statistic = list(
                           all_continuous() ~ "{mean} ({sd})",
@@ -497,6 +579,9 @@ restab.hispanic <- tbl_summary(pd.resid$hispanic %>% select(grim.posneg, G_1mi1 
                           gender , educ , mat.educ , smk1 , current.drink1 ,
                           bmi1c , chronic , MO),
                         by=grim.posneg,
+                        digits=list(
+                          all_continuous() ~ c(2,2)
+                        ),
                         type=list(chronic~"continuous"),
                         statistic = list(
                           all_continuous() ~ "{mean} ({sd})",
@@ -1785,6 +1870,12 @@ calc.intslope <- function(cov, coefs, fit, pov_val){
   paste0(round(est,2),' (', round(se,2),')', p)
 }
 
+CI <- function(b, se){
+  paste0(round(b,2), ' (', 
+         round(b - 1.96*se,2), ',', 
+         round(b + 1.96*se,2), ')')
+}
+
 int.coefs <- function(clock="grim.accel"){
   terms <- lapply(list(black="black", white="white", hispanic="hispanic"), FUN=function(x){
     pred <- pd.resid[[x]]
@@ -1797,24 +1888,22 @@ int.coefs <- function(clock="grim.accel"){
     coefs <- coeftest(fit, vcov=cov)
     
     int.terms <- data.frame(
-      "Segregation" = paste0(round(coefs['G_1mi1','Estimate'],2), ' (', 
-                             round(coefs['G_1mi1','Std. Error'],2), ')', 
-                             format.intp(coefs['G_1mi1','Pr(>|t|)'])),
-      "Tract poverty" = paste0(round(coefs['pov1z','Estimate'],2), ' (', 
-                             round(coefs['pov1z','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z','Pr(>|t|)'])),
-      "Interaction" = paste0(round(coefs['pov1z:G_1mi1','Estimate'],2), ' (', 
-                             round(coefs['pov1z:G_1mi1','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z:G_1mi1','Pr(>|t|)']))
+      "Segregation" = CI(coefs['G_1mi1','Estimate'], coefs['G_1mi1','Std. Error']),
+      "Segreagation_P" = signif(coefs['G_1mi1','Pr(>|t|)'], 3),
+      "Tract poverty" = CI(coefs['pov1z','Estimate'], coefs['pov1z','Std. Error']),
+      "Poverty_P" = signif(coefs['pov1z','Pr(>|t|)'], 3),
+      "Interaction" = CI(coefs['pov1z:G_1mi1','Estimate'], coefs['pov1z:G_1mi1','Std. Error']),
+      "Interaction_P" = signif(coefs['pov1z:G_1mi1','Pr(>|t|)'], 3)
     )
     
-    slopes <- data.frame(
-      "-1 sd poverty" = calc.intslope(cov, coefs, fit, -1),
-      "mean poverty" = calc.intslope(cov, coefs, fit, 0),
-      "+1 sd poverty" = calc.intslope(cov, coefs, fit, 1)
-    )
-    
-    rbind(t(int.terms), t(slopes))
+    # slopes <- data.frame(
+    #   "-1 sd poverty" = calc.intslope(cov, coefs, fit, -1),
+    #   "mean poverty" = calc.intslope(cov, coefs, fit, 0),
+    #   "+1 sd poverty" = calc.intslope(cov, coefs, fit, 1)
+    # )
+    # 
+    # rbind(t(int.terms), t(slopes))
+    t(int.terms)
   })
   
   do.call(cbind.data.frame, terms)
@@ -1892,51 +1981,38 @@ int.coefs.cat <- function(clock="grim.accel"){
     
     if(x=='black'){
       int.terms <- data.frame(
-      "Clustered" = paste0(round(coefs['seg_catclustered','Estimate'],2), ' (', 
-                             round(coefs['seg_catclustered','Std. Error'],2), ')', 
-                             format.intp(coefs['seg_catclustered','Pr(>|t|)'])),
-      "Very Clustered" = paste0(round(coefs['seg_catvery clustered','Estimate'],2), ' (', 
-                             round(coefs['seg_catvery clustered','Std. Error'],2), ')', 
-                             format.intp(coefs['seg_catvery clustered','Pr(>|t|)'])),
-      "Tract poverty" = paste0(round(coefs['pov1z','Estimate'],2), ' (', 
-                             round(coefs['pov1z','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z','Pr(>|t|)'])),
-      "Clustered x Pov" = paste0(round(coefs['pov1z:seg_catclustered','Estimate'],2), ' (', 
-                             round(coefs['pov1z:seg_catclustered','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z:seg_catclustered','Pr(>|t|)'])),
-      "Very Clustered x Pov" = paste0(round(coefs['pov1z:seg_catvery clustered','Estimate'],2), ' (', 
-                             round(coefs['pov1z:seg_catvery clustered','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z:seg_catvery clustered','Pr(>|t|)']))
+      "Clustered" = CI(coefs['seg_catclustered','Estimate'], coefs['seg_catclustered','Std. Error']),
+      "Clustered_P" = signif(coefs['seg_catclustered','Pr(>|t|)'],3),
+      "Very Clustered" = CI(coefs['seg_catvery clustered','Estimate'], coefs['seg_catvery clustered','Std. Error']),
+      "Very_Clustered_P" = signif(coefs['seg_catvery clustered','Pr(>|t|)'],3),
+      "Tract poverty" = CI(coefs['pov1z','Estimate'], coefs['pov1z','Std. Error']),
+      "Poverty_P" = signif(coefs['pov1z','Pr(>|t|)'],3),
+      "Clustered x Pov" = CI(coefs['pov1z:seg_catclustered','Estimate'], coefs['pov1z:seg_catclustered','Std. Error']),
+      "Clustered x Pov P" = signif(coefs['pov1z:seg_catclustered','Pr(>|t|)'],3),
+      "Very Clustered x Pov" = CI(coefs['pov1z:seg_catvery clustered','Estimate'], coefs['pov1z:seg_catvery clustered','Std. Error']),
+      "Very Clustered x Pov P" = signif(coefs['pov1z:seg_catvery clustered','Pr(>|t|)'],3)
       ) 
     }else if(x=='hispanic'){
       int.terms <- data.frame(
-      "Very Clustered" = paste0(round(coefs['seg_catvery clustered','Estimate'],2), ' (', 
-                             round(coefs['seg_catvery clustered','Std. Error'],2), ')', 
-                             format.intp(coefs['seg_catvery clustered','Pr(>|t|)'])),
-      "Tract poverty" = paste0(round(coefs['pov1z','Estimate'],2), ' (', 
-                             round(coefs['pov1z','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z','Pr(>|t|)'])),
-      "Very Clustered x Pov" = paste0(round(coefs['pov1z:seg_catvery clustered','Estimate'],2), ' (', 
-                             round(coefs['pov1z:seg_catvery clustered','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z:seg_catvery clustered','Pr(>|t|)']))
+      "Very Clustered" = CI(coefs['seg_catvery clustered','Estimate'], coefs['seg_catvery clustered','Std. Error']),
+      "Very_Clustered_P" = signif(coefs['seg_catvery clustered','Pr(>|t|)'],3),
+      "Tract poverty" = CI(coefs['pov1z','Estimate'], coefs['pov1z','Std. Error']),
+      "Poverty_P" = signif(coefs['pov1z','Pr(>|t|)'],3),
+      "Very Clustered x Pov" = CI(coefs['pov1z:seg_catvery clustered','Estimate'], coefs['pov1z:seg_catvery clustered','Std. Error']),
+      "Very Clustered x Pov P" = signif(coefs['pov1z:seg_catvery clustered','Pr(>|t|)'],3)
       )
     }else{
       int.terms <- data.frame(
-      "Under Clustered" = paste0(round(coefs['seg_catunderclustered','Estimate'],2), ' (', 
-                             round(coefs['seg_catunderclustered','Std. Error'],2), ')', 
-                             format.intp(coefs['seg_catunderclustered','Pr(>|t|)'])),
-      "Clustered" = paste0(round(coefs['seg_catclustered','Estimate'],2), ' (', 
-                             round(coefs['seg_catclustered','Std. Error'],2), ')', 
-                             format.intp(coefs['seg_catclustered','Pr(>|t|)'])),
-      "Tract poverty" = paste0(round(coefs['pov1z','Estimate'],2), ' (', 
-                             round(coefs['pov1z','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z','Pr(>|t|)'])),
-      "Under Clustered x Pov" = paste0(round(coefs['pov1z:seg_catunderclustered','Estimate'],2), ' (', 
-                             round(coefs['pov1z:seg_catunderclustered','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z:seg_catunderclustered','Pr(>|t|)'])),
-      "Clustered x Pov" = paste0(round(coefs['pov1z:seg_catclustered','Estimate'],2), ' (', 
-                             round(coefs['pov1z:seg_catclustered','Std. Error'],2), ')', 
-                             format.intp(coefs['pov1z:seg_catclustered','Pr(>|t|)']))
+      "Under Clustered" = CI(coefs['seg_catunderclustered','Estimate'], coefs['seg_catunderclustered','Std. Error']),
+      "Under_Clustered_P" = signif(coefs['seg_catunderclustered','Pr(>|t|)'],3),
+      "Clustered" = CI(coefs['seg_catclustered','Estimate'], coefs['seg_catclustered','Std. Error']),
+      "Clustered_P" = signif(coefs['seg_catclustered','Pr(>|t|)'],3),
+      "Tract poverty" = CI(coefs['pov1z','Estimate'], coefs['pov1z','Std. Error']),
+      "Poverty_P" = signif(coefs['pov1z','Pr(>|t|)'],3),
+      "Under Clustered x Pov" = CI(coefs['pov1z:seg_catunderclustered','Estimate'], coefs['pov1z:seg_catunderclustered','Std. Error']),
+      "Under Clustered x Pov P" = signif(coefs['pov1z:seg_catunderclustered','Pr(>|t|)'],3),
+      "Clustered x Pov" = CI(coefs['pov1z:seg_catclustered','Estimate'], coefs['pov1z:seg_catclustered','Std. Error']),
+      "Clustered x Pov P" = signif(coefs['pov1z:seg_catclustered','Pr(>|t|)'],3)
       )
     }
     
@@ -1948,6 +2024,7 @@ int.coefs.cat <- function(clock="grim.accel"){
     # )
     # 
     # rbind(t(int.terms), t(slopes))
+    t(int.terms)
   })
   
   # do.call(cbind.data.frame, terms)
@@ -2196,12 +2273,12 @@ interaction_table <- list(
   pheno = int.coefs("pheno.accel")
 )
 
-write.xlsx(interaction_table, file=file.path(save.R,"Segregation_Clocks/Tables/Interaction_Terms.xlsx"), overwrite = T)
+write.xlsx(interaction_table, file=file.path(save.R,"Segregation_Clocks/Tables/Interaction_Terms_31Oct2023.xlsx"), overwrite = T, row.names=T)
 
 
 
 cat_int_coefs <- int.coefs.cat("grim.accel")
-write.xlsx(cat_int_coefs, file=file.path(save.R,"Segregation_Clocks/Tables/Interaction_Terms_Categorical.xlsx"), overwrite = T)
+write.xlsx(cat_int_coefs, file=file.path(save.R,"Segregation_Clocks/Tables/Interaction_Terms_Categorical_31Oct2023.xlsx"), overwrite = T,row.names=T)
 
 ```
 
